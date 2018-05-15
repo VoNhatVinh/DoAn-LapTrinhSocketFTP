@@ -186,6 +186,8 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 			while (true)
 			{
+				sprintf(temp_dau, "");
+				sprintf(temp_sau, temp_dau);
 				printf("ftp> ");
 				fgets(command, 30, stdin);
 				XulyChuoi(command, temp_dau, temp_sau);
@@ -201,13 +203,13 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 					return -1;
 				}
 				port = (int)ntohs(sa.sin_port);
-				sprintf(command, "127,0,0,1,%d,%d", port / 256, port - (int)(port / 256) * 256);
+				//
 				if (!strcmp(temp_dau, "dir") || !strcmp(temp_dau, "ls"))
 				{
 					if (!strcmp(temp_dau, "dir"))
 						sprintf(temp_dau, "LIST");
 					else sprintf(temp_dau, "NLST");
-					
+
 					clock_t start = clock();// ham bất đầu đếm thời gian thực hiện chương trình
 
 					//Báo cho sever PORT để nó kết nối
@@ -268,9 +270,22 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 				}
 				else if (!strcmp(temp_dau, "put"))
 				{
+					byte_length = 0; duration = 0;
 					char in_name[100], out_name[100];
-					sprintf(in_name, "ahihi.txt");
-					sprintf(out_name, "out.txt");
+					printf("Local File: ");
+					fgets(in_name, 100, stdin);
+					in_name[strlen(in_name) - 1] = '\0';
+					printf("Remote file: ");
+					fgets(out_name, 100, stdin);
+					out_name[strlen(out_name) - 1] = '\0';
+					//Check FILE
+					FILE *f = fopen(in_name, "rb");
+					if (f == NULL)
+					{
+						cout << in_name << ": File not found" << endl;
+						SocketData.Close();
+						continue;
+					}
 					//PORT có 6 giá trị tham số
 					memset(buf, 0, strlen(buf));
 					sprintf(command, "127,0,0,1,%d,%d", port / 256, port - (int)(port / 256) * 256);
@@ -278,21 +293,36 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 					ClientSocket.Send(buf, strlen(buf));
 					memset(buf, 0, strlen(buf));
 					ClientSocket.Receive(buf, BUFSIZ);
-					printf("%s\n", buf);
+					printf("%s", buf);
 					memset(buf, 0, strlen(buf));
 					sprintf(buf, "STOR %s\n\r", out_name);
 					ClientSocket.Send(buf, strlen(buf));
 					memset(buf, 0, strlen(buf));
 					ClientSocket.Receive(buf, BUFSIZ);
-					printf("%s\n", buf);
+					printf("%s", buf);
+					if (strstr(buf, "425") != NULL)
+					{
+						SocketData.Close();
+						continue;
+					}
 					SocketData.Listen();
 					if (SocketData.Accept(CData))
 					{
 						memset(buf, 0, strlen(buf));
+						clock_t start = clock();// ham bất đầu đếm thời gian thực hiện chương trình
+						while (fread(buf, 1, 1, f) != NULL)
+						{
+							CData.Send(buf, 1);
+							byte_length += 1;
+						}
+						fclose(f);
+						CData.Close();
+						clock_t finish = clock();// ham đếm thời gian kết thúc
+						duration = (double)(finish - start) / CLOCKS_PER_SEC;
+						memset(buf, 0, strlen(buf));
 						ClientSocket.Receive(buf, BUFSIZ);
-						printf("%s\n", buf);
-
-						
+						printf("%s", buf);
+						printf("%d bytes sent in %.2fSeconds %fBytes/sec.\n", byte_length, duration, byte_length / duration);
 					}
 				}
 				else
