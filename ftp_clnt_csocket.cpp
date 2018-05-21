@@ -24,7 +24,7 @@ using namespace std;
 void TachChuoi(char a[], char dau[], char sau[]);
 
 //Hàm tìm PORT của một Socket, trả về PORT
-int GetPort(const CSocket &a);
+int GetPort(CSocket &a);
 
 //Check tồn tại của chuỗi a trong vector. Nếu có trả về vị trí của nó, không có trả về -1
 int CheckTonTai(vector<string> a, char x[]);
@@ -35,6 +35,10 @@ string Lowercase(string a);
 
 //Trong cái gửi lệnh này có cả cái gửi PORT và Gửi lệnh luôn.
 int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], char temp_sau[]);
+
+int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[]);
+
+void Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket);
 
 void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, char put_file[]);
 
@@ -118,22 +122,22 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 			int tmpres, size, status;
 			/*
 			Connection Establishment
-			   120
-				  220
-			   220
-			   421
+			120
+			220
+			220
+			421
 			Login
-			   USER
-				  230
-				  530
-				  500, 501, 421
-				  331, 332
-			   PASS
-				  230
-				  202
-				  530
-				  500, 501, 503, 421
-				  332
+			USER
+			230
+			530
+			500, 501, 421
+			331, 332
+			PASS
+			230
+			202
+			530
+			500, 501, 503, 421
+			332
 			*/
 			char * str;
 			int codeftp;
@@ -150,7 +154,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 				}
 
 				str = strstr(buf, "220");//Why ???
-				//Tìm coi trong buf có code 220 hay không.
+										 //Tìm coi trong buf có code 220 hay không.
 				if (str != NULL) {
 					break;
 				}
@@ -202,7 +206,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 			//Chỉ số để chỉ ra lệnh đó là lệnh nào. Port là Port của Socket
 			int chiso, port;
 			//byte_length để tính độ dài byte
-			int byte_length = 0;
+			int byte_length;
 			//size_temp là biến lặp cho mput và mget
 			int temp_size;
 			//duration là thời gian chuyển
@@ -213,9 +217,14 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 			char put_file[35], get_file[35];
 			//mput and mget
 			vector<string>argv, mfile;
+
+			int ret_guilenh_pasv;
+			//Check Mode
+			string mode = "active";
 			fgetc(stdin);
 			while (true)
 			{//Xử lý lệnh trong này
+				byte_length = 0;
 				temp_size = 0;
 				printf("ftp> ");
 				fgets(command, 40, stdin);
@@ -291,21 +300,32 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 								argv.clear();
 							}
 						}
-
-						if (GuiLenh(SDManage, ClientSocket, temp_truoc, temp_sau) == -1)
+						if (mode == "active")
 						{
-							SDManage.Close();
-							continue;
+							if (GuiLenh(SDManage, ClientSocket, temp_truoc, temp_sau) == -1)
+							{
+								SDManage.Close();
+								continue;
+							}
 						}
-
-						SDManage.Listen();
-						if (SDManage.Accept(SDTranfer))
+						else
+						{
+							ret_guilenh_pasv = GuiLenhPasv(SDTranfer, ClientSocket, temp_truoc, temp_sau);
+							if (ret_guilenh_pasv == -1)
+							{
+								SDTranfer.Close();
+								continue;
+							}
+						}
+						if (mode == "active")
+							SDManage.Listen();
+						if ((mode == "active" && SDManage.Accept(SDTranfer)) || mode == "passive")//Lưu ý mode == "active' phải check trước...
 						{
 							//Lệnh dir hoặc ls
 							if (chiso == 1 || chiso == 0)
 							{
-								double duration;
-								//Cho nhận dữ liệu...
+								//Ls_Dir(SDTranfer, ClientSocket);
+								tmpres = 1;
 								clock_t start = clock();
 								while (tmpres != 0)
 								{
@@ -317,8 +337,11 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 								clock_t finish = clock();
 								duration = double(finish - start) / CLOCKS_PER_SEC;
 								memset(buf, 0, BUFSIZ);
-								tmpres = ClientSocket.Receive(buf, BUFSIZ);
-								printf("%s", buf);
+								if (ret_guilenh_pasv == 1 || mode == "active")
+								{
+									ClientSocket.Receive(buf, BUFSIZ);
+									printf("%s", buf);
+								}
 								printf("ftp: %d bytes received in %.3fSenconds %.3fKbytes/sec.\n", byte_length, duration, (byte_length) / (duration * 1024));
 							}
 							//Lệnh put
@@ -365,14 +388,25 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 							//choose = Lowercase(choose);
 							if (choose != "y" && choose != "yes")
 								continue;
-
-							if (GuiLenh(SDManage, ClientSocket, temp_truoc, strdup(mfile[i].c_str())) == -1)
+							if (mode == "active")
 							{
-								SDManage.Close();
-								continue;
+								if (GuiLenh(SDManage, ClientSocket, temp_truoc, strdup(mfile[i].c_str())) == -1)
+								{
+									SDManage.Close();
+									continue;
+								}
 							}
-							SDManage.Listen();
-							if (SDManage.Accept(SDTranfer))
+							else {
+								ret_guilenh_pasv = GuiLenhPasv(SDTranfer, ClientSocket, temp_truoc, temp_sau);
+								if (ret_guilenh_pasv == -1)
+								{
+									SDTranfer.Close();
+									continue;
+								}
+							}
+							if (mode == "active")
+								SDManage.Listen();
+							if ((mode == "active" && SDManage.Accept(SDTranfer)) || mode == "passive")
 							{
 								if (chiso == 4)
 									Put(buf, SDTranfer, ClientSocket, strdup(mfile[i].c_str()));
@@ -383,13 +417,23 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 						}
 						mfile.clear();
 					}
-					else
+					else //chiso > 5
 					{
-
+						if (chiso == 13)
+						{
+							mode = "passive";
+							cout << "Enter Passvie Mode" << endl;
+						}
 					}
 				}
-				else
+				else //Chỉ số = -1
 				{
+					if (!strcmp(temp_truoc, "acti"))
+					{
+						cout << "Enter Active Mode" << endl;
+						mode = "active";
+						continue;
+					}
 					cout << "Invalid Command!\n";
 				}
 			}
@@ -418,16 +462,12 @@ void TachChuoi(char a[], char dau[], char sau[])
 	sau[strlen(a) - n - 2] = '\0';
 }
 
-int GetPort(const CSocket &a)
-{//Nguồn: https://stackoverflow.com/questions/4046616/sockets-how-to-find-out-what-port-and-address-im-assigned
-	struct sockaddr_in sa;
-	int sa_len;
-	sa_len = sizeof(sa);
-	if (getsockname(a, (struct sockaddr *)&sa, &sa_len) == -1) {
-		perror("getsockname() failed");
-		return -1;
-	}
-	return (int)ntohs(sa.sin_port);
+int GetPort(CSocket &a)
+{
+	unsigned int port;
+	CString address;
+	a.GetSockName(address, port);
+	return port;
 }
 
 int CheckTonTai(vector<string> a, char x[])
@@ -494,6 +534,37 @@ int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], char te
 	}
 }
 
+int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[])
+{
+	int x[6];
+	unsigned int codeftp;
+	char buf[BUFSIZ + 1];
+	//Create Socket
+	SDTranfer.Create();
+	sprintf(buf, "PASV\r\n");
+	ClientSocket.Send(buf, strlen(buf));
+	memset(buf, 0, BUFSIZ);
+	ClientSocket.Receive(buf, BUFSIZ);
+	printf("%s", buf);
+	sscanf(strstr(buf, "127"), "%d,%d,%d,%d,%d,%d", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5]);
+
+	//Sau đó gửi lệnh lên
+	sprintf(buf, "%s %s\n\r", temp_truoc, temp_sau);
+	ClientSocket.Send(buf, strlen(buf));
+	//Cho Socket ket noi toi Server
+	SDTranfer.Connect(_T("127.0.0.1"), x[4] * 256 + x[5]);
+	memset(buf, 0, BUFSIZ);
+	ClientSocket.Receive(buf, BUFSIZ, 0);
+	printf("%s", buf);
+	if (strstr(buf, "425") != NULL)
+	{
+		return -1;
+	}
+	if (strstr(buf, "226") == NULL)
+		return 1;
+	return 0;
+}
+
 string Lowercase(string a)
 {
 	string b;
@@ -506,6 +577,28 @@ string Lowercase(string a)
 		}
 	}
 	return b;
+}
+
+void Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket)
+{
+	double duration;
+	char buf[BUFSIZ + 1];
+	int tmpres = 1, byte_length = 0;
+	//Cho nhận dữ liệu...
+	clock_t start = clock();
+	while (tmpres != 0)
+	{
+		memset(buf, 0, BUFSIZ);
+		tmpres = SDTranfer.Receive(buf, BUFSIZ);
+		printf("%s", buf);
+		byte_length += tmpres;
+	}
+	clock_t finish = clock();
+	duration = double(finish - start) / CLOCKS_PER_SEC;
+	memset(buf, 0, BUFSIZ);
+	tmpres = ClientSocket.Receive(buf, BUFSIZ);
+	printf("%s", buf);
+	printf("ftp: %d bytes received in %.3fSenconds %.3fKbytes/sec.\n", byte_length, duration, (byte_length) / (duration * 1024));
 }
 
 void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, char put_file[])
@@ -550,4 +643,3 @@ void Get(char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket
 	printf("%s", buf);
 	printf("%d bytes sent in %.2fSeconds %fKbytes/sec.\n", byte_length, duration, byte_length / (duration * 1024));
 }
-
