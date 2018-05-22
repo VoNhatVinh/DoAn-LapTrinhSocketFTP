@@ -44,8 +44,6 @@ void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, char put_file[])
 
 void Get(char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket);
 
-
-
 void replylogcode(int code)
 {
 	switch (code) {
@@ -81,7 +79,6 @@ void replylogcode(int code)
 	printf("\n");
 }
 
-
 int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 {
 	int nRetCode = 0;
@@ -99,7 +96,6 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 		}
 		else
 		{
-			// TODO: code your application's behavior here.
 			// Khoi tao thu vien Socket
 			if (AfxSocketInit() == FALSE)
 			{
@@ -202,7 +198,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 			CSocket SDManage, SDTranfer;
 			//List kiểm soát lệnh
-			vector<string>list = { "dir","ls","put","get","mput","mget","cd","lcd","del","mdel","mkdir","rmdir","pwd","pasv","quit" };
+			vector<string>list = { "dir","ls","put","get","mput","mget","cd","lcd","delete","mdelete","mkdir","rmdir","pwd","pasv","quit" };
 			//Chỉ số để chỉ ra lệnh đó là lệnh nào. Port là Port của Socket
 			int chiso, port;
 			//byte_length để tính độ dài byte
@@ -217,7 +213,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 			char put_file[35], get_file[35];
 			//mput and mget
 			vector<string>argv, mfile;
-
+			string choose;//yes or y
 			int ret_guilenh_pasv;
 			//Check Mode
 			string mode = "active";
@@ -360,7 +356,6 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 					}
 					else if (chiso == 4 || chiso == 5)//Truyền nhận dữ liệu nhiều lần mget và mput
 					{
-						string choose;
 						//Cắt command + xử lý nhiều file.
 						chiso == 4 ? sprintf(temp_truoc, "STOR") : sprintf(temp_truoc, "RETR");
 						if (!strcmp(temp_sau, ""))
@@ -376,7 +371,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 								FILE *f = fopen(mfile[i].c_str(), "rb");
 								if (f == NULL)
 								{
-									cout << mfile[i] << ": File no found." << endl;
+									cout << mfile[i] << ": File not found." << endl;
 									continue;
 								}
 								fclose(f);
@@ -419,10 +414,111 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 					}
 					else //chiso > 5
 					{
-						if (chiso == 13)
+						if (chiso == 6) { //Thay đổi đường dẫn trên Server(cd)
+							sprintf(temp_truoc, "CWD");
+
+							if (!strcmp(temp_sau, "")) {//neu chi nhap cd -> enter
+								cout << "Remote directory ";
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);
+							}
+
+							//tao ket noi
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+
+							printf("%s", buf);
+						}
+
+						if (chiso == 7)//thay doi duong dan duoi client
+						{
+
+						}
+
+						if (chiso == 8)//xoa mot file tren Server 
+						{
+							sprintf(temp_truoc, "DELE");
+
+							if (!strcmp(temp_sau, "")) {
+								printf("Remote file ");
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);//chi lay ten file dau tien
+							}
+
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+							printf("%s", buf);
+
+						}
+
+						if (chiso == 9)//xoa nhieu file tren Server
+						{
+							sprintf(temp_truoc, "DELE");
+							if (!strcmp(temp_sau, "")) {
+								printf("Remote file ");
+								fgets(temp_sau, 100, stdin);
+							}
+							TachChuoi(mfile, temp_sau);
+							for (int i = 0; i < mfile.size(); i++) {
+								cout << "delete " << mfile[i].c_str() << "?";
+								getline(cin, choose);
+								choose = Lowercase(choose);
+								if (choose == "y" || choose == "yes") {
+									sprintf(buf, "%s %s\r\n", temp_truoc, mfile[i].c_str());
+									ClientSocket.Send(buf, BUFSIZ);
+									memset(buf, 0, BUFSIZ);
+									ClientSocket.Receive(buf, BUFSIZ);
+									printf("%s", buf);
+								}
+							}
+						}
+								
+						if (chiso == 10)//tao thu muc tren Server
+						{
+							sprintf(temp_truoc, "MKD");
+
+							if (!strcmp(temp_sau, "")) {
+								cout << "Directory name ";
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);
+							}
+
+							//tao ket noi
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+
+							printf("%s", buf);
+						}
+
+						if (chiso == 11)//xoa thu muc rong tren Server
+						{
+
+						}
+
+						if (chiso == 12)//Hien thi duong dan hien tai tren server
+						{
+
+						}
+
+						if (chiso == 13)//chuyen sang che do passive
 						{
 							mode = "passive";
 							cout << "Enter Passvie Mode" << endl;
+						}
+
+						if (chiso == 14)//lenh quit
+						{
+							sprintf(buf, "%s", temp_truoc);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+							printf("%s", buf);
 						}
 					}
 				}
@@ -443,7 +539,6 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 	}
 	else
 	{
-		// TODO: change error code to suit your needs
 		_tprintf(_T("Fatal Error: GetModuleHandle failed\n"));
 		nRetCode = 1;
 	}
