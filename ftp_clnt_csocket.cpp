@@ -434,7 +434,11 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 						if (chiso == 7)//thay doi duong dan duoi client
 						{
-
+							//WINAPI SetCurrentDirectory(_In_ LPCTSTR lpPathName);
+						//	WINAPI SetCurrentDirectory(C : \Users\nhatv);
+							if (WINAPI SetCurrentDirectory(\Users\nhatv\) != 0)
+								cout << "tc"; else
+								cout << "fail";
 						}
 
 						if (chiso == 8)//xoa mot file tren Server 
@@ -659,6 +663,7 @@ int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], ch
 		return 1;
 	return 0;
 }
+
 
 string Lowercase(string a)
 {
