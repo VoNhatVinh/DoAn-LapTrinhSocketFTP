@@ -1,14 +1,16 @@
 ﻿// ftp_clnt_csocket.cpp : Defines the entry point for the console application.
-//OLDDDD
+//
 
 #include "stdafx.h"
 #include "ftp_clnt_csocket.h"
+#include <wchar.h>
 #include <afxsock.h>
 #include <iostream>
 #include <stdio.h>
 #include <vector>
 #include <string>
-
+#include <fstream>
+#include <fcntl.h> //_O_U16TEXT
 #ifdef _DEBUG
 #define new DEBUG_NEW
 #endif
@@ -21,6 +23,7 @@ CWinApp theApp;
 using namespace std;
 
 //Hàm tách 1 chuỗi command thành hai chuỗi đầu là lệnh và sau là tham số
+void TachChuoi(WCHAR a[], WCHAR dau[], WCHAR sau[]);
 void TachChuoi(char a[], char dau[], char sau[]);
 
 //Hàm tìm PORT của một Socket, trả về PORT
@@ -34,17 +37,15 @@ int TachChuoi(vector<string> &temp, char str[]);
 string Lowercase(string a);
 
 //Trong cái gửi lệnh này có cả cái gửi PORT và Gửi lệnh luôn.
-int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], const char temp_sau[], int choose = 1);
+int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], char temp_sau[]);
 
-int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[], int choose = 1);
+int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[]);
 
-string Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket, int res_pasv, int choose = 1);
+void Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket);
 
-void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, const char put_file[]);
+void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, char put_file[]);
 
-void Get(const char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket, string path = "");
-
-void Del(const char temp_sau[], CSocket& ClientSocket);
+void Get(char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket);
 
 void replylogcode(int code)
 {
@@ -70,7 +71,7 @@ void replylogcode(int code)
 		break;
 	case 530:
 		printf("Not logged in.");
-		break;
+
 	case 550:
 		printf("File not found.");
 		break;
@@ -80,6 +81,7 @@ void replylogcode(int code)
 	}
 	printf("\n");
 }
+
 
 int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 {
@@ -200,7 +202,7 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 			CSocket SDManage, SDTranfer;
 			//List kiểm soát lệnh
-			vector<string>list = { "dir","ls","put","get","mput","mget","cd","lcd","del","mdel","mkdir","rmdir","pwd","pasv","quit" };
+			vector<string>list = { "dir","ls","put","get","mput","mget","cd","lcd","delete","mdelete","mkdir","rmdir","pwd","pasv","quit" };
 			//Chỉ số để chỉ ra lệnh đó là lệnh nào. Port là Port của Socket
 			int chiso, port;
 			//byte_length để tính độ dài byte
@@ -210,15 +212,13 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 			//duration là thời gian chuyển
 			double duration;
 			//Một char command để nhập lệnh vào, temp_truoc để lưu lệnh, temp_sau để lưu phần sau lại.
-			char command[40], temp_truoc[5], temp_sau[35];
+			char command[40], temp_truoc[10], temp_sau[30];
 			//tên file put lên server
 			char put_file[35], get_file[35];
 			//mput and mget
 			vector<string>argv, mfile;
 			string choose;//yes or y
 			int ret_guilenh_pasv;
-			//files của mỗi phần tử khi tách file ra
-			vector<string>files;
 			//Check Mode
 			string mode = "active";
 			fgetc(stdin);
@@ -227,9 +227,11 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 				byte_length = 0;
 				temp_size = 0;
 				printf("ftp> ");
+
 				fgets(command, 40, stdin);
 				TachChuoi(command, temp_truoc, temp_sau);
-				if ((chiso = CheckTonTai(list, temp_truoc)) != -1)
+				chiso = CheckTonTai(list, temp_truoc);
+				if (chiso != -1)
 				{
 					if (chiso < 4)
 					{
@@ -324,7 +326,25 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 							//Lệnh dir hoặc ls
 							if (chiso == 1 || chiso == 0)
 							{
-								Ls_Dir(SDTranfer, ClientSocket, ret_guilenh_pasv);
+								//Ls_Dir(SDTranfer, ClientSocket);
+								tmpres = 1;
+								clock_t start = clock();
+								while (tmpres != 0)
+								{
+									memset(buf, 0, BUFSIZ);
+									tmpres = SDTranfer.Receive(buf, BUFSIZ);
+									printf("%s", buf);
+									byte_length += tmpres;
+								}
+								clock_t finish = clock();
+								duration = double(finish - start) / CLOCKS_PER_SEC;
+								memset(buf, 0, BUFSIZ);
+								if (ret_guilenh_pasv == 1 || mode == "active")
+								{
+									ClientSocket.Receive(buf, BUFSIZ);
+									printf("%s", buf);
+								}
+								printf("ftp: %d bytes received in %.3fSenconds %.3fKbytes/sec.\n", byte_length, duration, (byte_length) / (duration * 1024));
 							}
 							//Lệnh put
 							else if (chiso == 2)
@@ -340,14 +360,9 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 						SDTranfer.Close();
 						SDManage.Close();
 					}
-
-					else if (chiso == 4 || chiso == 5)
+					else if (chiso == 4 || chiso == 5)//Truyền nhận dữ liệu nhiều lần mget và mput
 					{
-						sprintf(buf, "TYPE A\n\r");
-						ClientSocket.Send(buf, strlen(buf));
-						memset(buf, 0, BUFSIZ);
-						ClientSocket.Receive(buf, BUFSIZ);
-						printf("%s", buf);
+						//Cắt command + xử lý nhiều file.
 						chiso == 4 ? sprintf(temp_truoc, "STOR") : sprintf(temp_truoc, "RETR");
 						if (!strcmp(temp_sau, ""))
 						{
@@ -355,179 +370,200 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 							fgets(temp_sau, 35, stdin);
 						}
 						TachChuoi(mfile, temp_sau);
-						//Tại đây xử lý đối với trường hợp mget
-						if (chiso == 4)
+						for (int i = 0; i < mfile.size(); i++)
 						{
-							for (int i = 0; i < mfile.size(); i++)
+							if (chiso == 4)
 							{
 								FILE *f = fopen(mfile[i].c_str(), "rb");
 								if (f == NULL)
 								{
-									cout << mfile[i] << ": File no found." << endl;
+									cout << mfile[i] << ": File not found." << endl;
 									continue;
 								}
 								fclose(f);
 								printf("put %s? ", mfile[i].c_str());
-								getline(cin, choose);
-								if (choose == "y" && choose == "yes")
-								{
-									if (mode == "active")
-									{
-										if (GuiLenh(SDManage, ClientSocket, temp_truoc, strdup(mfile[i].c_str())) == -1)
-										{
-											SDManage.Close();
-											continue;
-										}
-									}
-									else {
-										ret_guilenh_pasv = GuiLenhPasv(SDTranfer, ClientSocket, temp_truoc, temp_sau);
-										if (ret_guilenh_pasv == -1)
-										{
-											SDTranfer.Close();
-											continue;
-										}
-									}
-									if (mode == "active")
-										SDManage.Listen();
-									if ((mode == "active" && SDManage.Accept(SDTranfer)) || mode == "passive")
-									{
-										Put(buf, SDTranfer, ClientSocket, strdup(mfile[i].c_str()));
-									}
-									SDTranfer.Close();
-									SDManage.Close();
-								}
 							}
-
-						}
-						if (chiso == 5)
-						{
-							for (int i = 0; i < mfile.size(); i++)
+							else
+								printf("get %s? ", mfile[i].c_str());
+							getline(cin, choose);
+							//choose = Lowercase(choose);
+							if (choose != "y" && choose != "yes")
+								continue;
+							if (mode == "active")
 							{
-								if (GuiLenh(SDManage, ClientSocket, "NLST", strdup(mfile[i].c_str()), 0) != -1)
+								if (GuiLenh(SDManage, ClientSocket, temp_truoc, strdup(mfile[i].c_str())) == -1)
 								{
-									SDManage.Listen();
-									if (SDManage.Accept(SDTranfer))
-									{
-										string temp_str;
-										string temp = Ls_Dir(SDTranfer, ClientSocket, 1, 0);
-										TachChuoi(files, strdup(temp.c_str()));
-										for (int j = 0; j < files.size(); j++)
-										{
-											temp_str = Lowercase(files[0]) == mfile[i] ? "" : mfile[i] + "/";
-											for (int k = 0; k < mfile[i].length(); k++)
-											{
-												if (mfile[i][k] == '*')
-													temp_str = "";
-											}
-											files[j] = files[j].substr(0, files[j].length() - 1);
-											SDManage.Close(); SDTranfer.Close();
-											cout << "get " << files[j] << "? ";
-											getline(cin, choose);
-											if (choose == "y" || choose == "yes")
-											{
-												if (GuiLenh(SDManage, ClientSocket, temp_truoc, files[j].c_str()) != -1)
-												{
-													SDManage.Listen();
-													if (SDManage.Accept(SDTranfer))
-														Get(files[j].c_str(), buf, SDTranfer, ClientSocket, temp_str);
-												}
-											}
-										}
-										files.clear();
-									}
+									SDManage.Close();
+									continue;
 								}
-								SDManage.Close();
 							}
-							mfile.clear();
+							else {
+								ret_guilenh_pasv = GuiLenhPasv(SDTranfer, ClientSocket, temp_truoc, temp_sau);
+								if (ret_guilenh_pasv == -1)
+								{
+									SDTranfer.Close();
+									continue;
+								}
+							}
+							if (mode == "active")
+								SDManage.Listen();
+							if ((mode == "active" && SDManage.Accept(SDTranfer)) || mode == "passive")
+							{
+								if (chiso == 4)
+									Put(buf, SDTranfer, ClientSocket, strdup(mfile[i].c_str()));
+								else Get(strdup(mfile[i].c_str()), buf, SDTranfer, ClientSocket);
+							}
+							SDTranfer.Close();
+							SDManage.Close();
 						}
+						mfile.clear();
 					}
 					else //chiso > 5
 					{
-						if (chiso == 6)
-						{
+						if (chiso == 6) { //Thay đổi đường dẫn trên Server(cd)
+							sprintf(temp_truoc, "CWD");
 
+							if (!strcmp(temp_sau, "")) {//neu chi nhap cd -> enter
+								cout << "Remote directory ";
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);
+							}
+
+							//tao ket noi
+							memset(buf, 0, BUFSIZ);
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+
+							printf("%s", buf);
+						
 						}
 
-						if (chiso == 7)//thay doi duong dan duoi client
+						else if (chiso == 7)//thay doi duong dan duoi client
 						{
-							//WINAPI SetCurrentDirectory(_In_ LPCTSTR lpPathName);
-						//	WINAPI SetCurrentDirectory(C : \Users\nhatv);
-							if (WINAPI SetCurrentDirectory(\Users\nhatv\) != 0)
-								cout << "tc"; else
-								cout << "fail";
-						}
-
-						if (chiso == 8)//xoa mot file tren Server
-						{
-							if (!strcmp(temp_sau, ""))
+							WCHAR infoBuf[BUFSIZ], infoBuf1[BUFSIZ], infoBuf2[BUFSIZ];
+							memset(infoBuf, 0, BUFSIZ);
+							fgetws(infoBuf, 100, stdin);
+							TachChuoi(infoBuf, infoBuf1, infoBuf2);//infoBuf1=lcd
+							
+							WCHAR infoBuf4[BUFSIZ];
+							//xem them tai http://www.tenouk.com/cpluscodesnippet/getsetcurrentdirectorywindowsystemdir.html
+					
+							//Chi nhap lcd
+							if (infoBuf2 == L"")
 							{
+								if (!GetCurrentDirectory(BUFSIZ, infoBuf4))
+									printf("File not found!\n");
+								else
+									wprintf(L"Local directory now: %ls\n", infoBuf4);
+							}
+
+							////nhap lcd <Duong dan>
+							if (SetCurrentDirectory(infoBuf2)!=0)
+								printf("File not found!\n");
+							else
+							{
+								if (GetCurrentDirectory(BUFSIZ, infoBuf2)==0)
+									printf("File not found!\n");
+								else wprintf(L"Local directory now: %ls\n", infoBuf1);
+							}
+						}
+
+						else if (chiso == 8)//xoa mot file tren Server 
+						{
+							sprintf(temp_truoc, "DELE");
+
+							if (!strcmp(temp_sau, "")) {
 								printf("Remote file ");
 								fgets(temp_sau, 100, stdin);
 								sscanf(temp_sau, "%s", temp_sau);//chi lay ten file dau tien
 							}
-							Del(temp_sau, ClientSocket);
+
+							memset(buf, 0, BUFSIZ);
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);					
+							printf("%s", buf);
 						}
 
-						if (chiso == 9)//xoa nhieu file tren Server
+						else if (chiso == 9)//xoa nhieu file tren Server
 						{
-							if (!strcmp(temp_sau, ""))
-							{
+							sprintf(temp_truoc, "DELE");
+							if (!strcmp(temp_sau, "")) {
 								printf("Remote file ");
 								fgets(temp_sau, 100, stdin);
-								sscanf(temp_sau, "%s", temp_sau);//chi lay ten file dau tien
 							}
 							TachChuoi(mfile, temp_sau);
-							for (int i = 0; i < mfile.size(); i++)
-							{
-								if (GuiLenh(SDManage, ClientSocket, "NLST", mfile[i].c_str(), 0) != -1)
-								{
-									SDManage.Listen();
-									if (SDManage.Accept(SDTranfer))
-									{
-										string temp_str;
-										string temp = Ls_Dir(SDTranfer, ClientSocket, 1, 0);
-										TachChuoi(files, strdup(temp.c_str()));
-										for (int j = 0; j < files.size(); j++)
-										{
-											temp_str = Lowercase(files[0]) == mfile[i] ? "" : mfile[i] + "/";
-											for (int k = 0; k < mfile[i].length(); k++)
-											{
-												if (mfile[i][k] == '*')
-													temp_str = "";
-											}
-											files[j] = files[j].substr(0, files[j].length() - 1);
-											SDManage.Close(); SDTranfer.Close();
-											cout << "del " << files[j] << "? ";
-											getline(cin, choose);
-											if (choose == "y" || choose == "yes")
-											{
-												Del(files[j].c_str(), ClientSocket);
-											}
-										}
-										files.clear();
-									}
+							for (int i = 0; i < mfile.size(); i++) {
+
+								cout << "delete " << mfile[i].c_str() << "?";
+								getline(cin, choose);
+								choose = Lowercase(choose);
+								if (choose == "y" || choose == "yes") {
+									memset(buf, 0, BUFSIZ);
+									sprintf(buf, "%s %s\r\n", temp_truoc, mfile[i].c_str());
+									ClientSocket.Send(buf, BUFSIZ);
+									memset(buf, 0, BUFSIZ);
+									ClientSocket.Receive(buf, BUFSIZ);
+									printf("%s", buf);
 								}
-								SDManage.Close();
 							}
 							mfile.clear();
 						}
 
-						if (chiso == 10)//tao thu muc tren Server
+						else if (chiso == 10)//tao thu muc tren Server
 						{
+							sprintf(temp_truoc, "MKD");
 
+							if (!strcmp(temp_sau, "")) {
+								cout << "Directory name ";
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);
+							}
+
+							//tao ket noi
+							memset(buf, 0, BUFSIZ);
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+							printf("%s", buf);
+							memset(buf, 0, BUFSIZ);
 						}
 
-						if (chiso == 11)//xoa thu muc rong tren Server
+						else if (chiso == 11)//xoa thu muc rong tren Server
 						{
+							sprintf(temp_truoc, "RMD");
 
+							if (!strcmp(temp_sau, "")) {
+								printf("Remote file ");
+								fgets(temp_sau, 100, stdin);
+								sscanf(temp_sau, "%s", temp_sau);//chi lay ten folder dau tien
+							}
+
+							memset(buf, 0, BUFSIZ);
+							sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+							printf("%s", buf);
 						}
 
-						if (chiso == 12)//Hien thi duong dan hien tai tren server
+						else if (chiso == 12)//Hien thi duong dan hien tai tren server
 						{
+							sprintf(temp_truoc, "PWD");
 
+							memset(buf, 0, BUFSIZ);
+							sprintf(buf, "%s \r\n", temp_truoc);
+							ClientSocket.Send(buf, BUFSIZ);
+							memset(buf, 0, BUFSIZ);
+							ClientSocket.Receive(buf, BUFSIZ);
+							printf("%s", buf);
 						}
 
-						if (chiso == 13)//chuyen sang che do passive
+						else if (chiso == 13)//chuyen sang che do passive
 						{
 							mode = "passive";
 							cout << "Enter Passvie Mode" << endl;
@@ -535,24 +571,26 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 
 						if (chiso == 14)//lenh quit
 						{
+							memset(buf, 0, BUFSIZ);
 							sprintf(buf, "%s", temp_truoc);
 							ClientSocket.Send(buf, BUFSIZ);
 							memset(buf, 0, BUFSIZ);
 							ClientSocket.Receive(buf, BUFSIZ);
 							printf("%s", buf);
-							exit(0);
+							exit(1);
 						}
 					}
+				
 				}
 				else //Chỉ số = -1
-				{
-					if (!strcmp(temp_truoc, "acti"))
-					{
-						cout << "Enter Active Mode" << endl;
-						mode = "active";
-						continue;
-					}
-					cout << "Invalid Command!\n";
+				{						
+						if (!strcmp(temp_truoc, "acti"))
+						{
+							cout << "Enter Active Mode" << endl;
+							mode = "active";
+							continue;
+						}
+						cout << "Invalid Command!\n";
 				}
 			}
 
@@ -566,6 +604,18 @@ int _tmain(int argc, TCHAR* argv[], TCHAR* envp[])
 	}
 
 	return nRetCode;
+}
+
+void TachChuoi(WCHAR a[], WCHAR dau[], WCHAR sau[])
+{
+	swscanf(a, L"%ls", dau);
+	int n = wcslen(dau);
+	int len = wcslen(a);
+	for (int i = n + 1; i <= len; i++)
+	{
+		sau[i - n - 1] = a[i];
+	}
+	sau[wcslen(a) - n - 2] = '\0';
 }
 
 void TachChuoi(char a[], char dau[], char sau[])
@@ -613,7 +663,7 @@ int TachChuoi(vector<string> &temp, char str[])
 	return count;
 }
 
-int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], const char temp_sau[], int choose)
+int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], char temp_sau[])
 {
 	int port, codeftp;
 	char buf[BUFSIZ + 1];
@@ -625,8 +675,7 @@ int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], const c
 	ClientSocket.Send(buf, strlen(buf));
 	memset(buf, 0, BUFSIZ);
 	ClientSocket.Receive(buf, BUFSIZ);
-	if (choose == 1)
-		printf("%s", buf);
+	printf("%s", buf);
 	sscanf(buf, "%d", &codeftp);
 	if (codeftp != 200)
 	{
@@ -638,19 +687,13 @@ int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], const c
 	ClientSocket.Send(buf, strlen(buf));
 	memset(buf, 0, BUFSIZ);
 	ClientSocket.Receive(buf, BUFSIZ);
-	if (choose == 1)
-		printf("%s", buf);
+	printf("%s", buf);
 	if (strstr(buf, "425") != NULL)
 	{
-		//replylogcode(425);
+		replylogcode(425);
 		return -1;
 	}
-
 	sscanf(buf, "%d", &codeftp);
-	if (codeftp == 550 && choose != 1)
-	{
-		printf("%s", buf);
-	}
 	if (codeftp != 150)
 	{
 		//replylogcode(codeftp);
@@ -658,7 +701,7 @@ int GuiLenh(CSocket &SDManage, CSocket &ClientSocket, char temp_truoc[], const c
 	}
 }
 
-int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[], int choose)
+int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], char temp_sau[])
 {
 	int x[6];
 	unsigned int codeftp;
@@ -669,8 +712,7 @@ int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], ch
 	ClientSocket.Send(buf, strlen(buf));
 	memset(buf, 0, BUFSIZ);
 	ClientSocket.Receive(buf, BUFSIZ);
-	if (choose == 1)
-		printf("%s", buf);
+	printf("%s", buf);
 	sscanf(strstr(buf, "127"), "%d,%d,%d,%d,%d,%d", &x[0], &x[1], &x[2], &x[3], &x[4], &x[5]);
 
 	//Sau đó gửi lệnh lên
@@ -680,8 +722,7 @@ int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], ch
 	SDTranfer.Connect(_T("127.0.0.1"), x[4] * 256 + x[5]);
 	memset(buf, 0, BUFSIZ);
 	ClientSocket.Receive(buf, BUFSIZ, 0);
-	if (choose == 1)
-		printf("%s", buf);
+	printf("%s", buf);
 	if (strstr(buf, "425") != NULL)
 	{
 		return -1;
@@ -690,7 +731,6 @@ int GuiLenhPasv(CSocket &SDTranfer, CSocket &ClientSocket, char temp_truoc[], ch
 		return 1;
 	return 0;
 }
-
 
 string Lowercase(string a)
 {
@@ -706,10 +746,9 @@ string Lowercase(string a)
 	return b;
 }
 
-string Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket, int res_pasv, int choose)
+void Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket)
 {
 	double duration;
-	string temp;
 	char buf[BUFSIZ + 1];
 	int tmpres = 1, byte_length = 0;
 	//Cho nhận dữ liệu...
@@ -718,26 +757,18 @@ string Ls_Dir(CSocket & SDTranfer, CSocket &ClientSocket, int res_pasv, int choo
 	{
 		memset(buf, 0, BUFSIZ);
 		tmpres = SDTranfer.Receive(buf, BUFSIZ);
-		buf[tmpres] = '\0';
-		if (choose == 1)
-			printf("%s", buf);
-		temp += buf;
+		printf("%s", buf);
 		byte_length += tmpres;
 	}
 	clock_t finish = clock();
 	duration = double(finish - start) / CLOCKS_PER_SEC;
 	memset(buf, 0, BUFSIZ);
-	if (res_pasv != 0)
-		tmpres = ClientSocket.Receive(buf, BUFSIZ);
-	if (choose == 1)
-	{
-		printf("%s", buf);
-		printf("ftp: %d bytes received in %.3fSenconds %.3fKbytes/sec.\n", byte_length, duration, (byte_length) / (duration * 1024));
-	}
-	return temp;
+	tmpres = ClientSocket.Receive(buf, BUFSIZ);
+	printf("%s", buf);
+	printf("ftp: %d bytes received in %.3fSenconds %.3fKbytes/sec.\n", byte_length, duration, (byte_length) / (duration * 1024));
 }
 
-void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, const char put_file[])
+void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, char put_file[])
 {
 	FILE *f = fopen(put_file, "rb");
 	int byte_length = 0; double duration;
@@ -745,64 +776,37 @@ void Put(char buf[], CSocket &SDTranfer, CSocket &ClientSocket, const char put_f
 	memset(buf, 0, BUFSIZ);
 	while (fread(buf, 1, BUFSIZ, f) != NULL)
 	{
-		SDTranfer.Send(buf, BUFSIZ);
+		SDTranfer.Send(buf, strlen(buf));
 		byte_length += strlen(buf);
 	}
 	fclose(f);
 	SDTranfer.Close();
 	clock_t finish = clock();// ham đếm thời gian kết thúc
 	duration = (double)(finish - start) / CLOCKS_PER_SEC;
-	memset(buf, 0, BUFSIZ);
+	memset(buf, 0, strlen(buf));
 	ClientSocket.Receive(buf, BUFSIZ);
 	printf("%s", buf);
-	//printf("%d bytes sent in %.2fSeconds %fKbytes/sec.\n", byte_length, duration, byte_length / (duration * 1024));
+	printf("%d bytes sent in %.2fSeconds %fKbytes/sec.\n", byte_length, duration, byte_length / (duration * 1024));
 }
 
-void Get(const char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket, string path)
+void Get(char get_file[], char buf[], CSocket &SDTranfer, CSocket & ClientSocket)
 {
 	int byte_length = 0, tmpres;
-	char file[20];
 	double duration;
-	FILE *f;
-	fopen_s(&f, get_file, "wb");
-	if (f == NULL)
-	{
-		int temp = 0;
-		for (int i = path.length(); i < strlen(get_file); i++)
-		{
-			file[temp] = get_file[i];
-			temp++;
-		}
-		file[temp] = '\0';
-	}
-	fopen_s(&f, file, "wb");
+	FILE *f = fopen(get_file, "wb");
 	memset(buf, 0, strlen(buf));
 	clock_t start = clock();
 	while ((tmpres = SDTranfer.Receive(buf, BUFSIZ)) != 0)
 	{
-		fwrite(buf, 1, BUFSIZ, f);
+		fwrite(buf, 1, strlen(buf), f);
 		byte_length += tmpres;
 	}
 	fclose(f);
 	SDTranfer.Close();
 	clock_t end = clock();
 	duration = (double)(end - start) / CLOCKS_PER_SEC;
-	memset(buf, 0, BUFSIZ);
+	memset(buf, 0, strlen(buf));
 	ClientSocket.Receive(buf, BUFSIZ);
 	printf("%s", buf);
-	//printf("%d bytes sent in %.2fSeconds %fKbytes/sec.\n", byte_length, duration, byte_length / (duration * 1024));
-}
-
-void Del(const char temp_sau[], CSocket& ClientSocket)
-{
-	char buf[BUFSIZ + 1], temp_truoc[5];
-	memset(buf, 0, BUFSIZ);
-	sprintf(temp_truoc, "DELE");
-
-	sprintf(buf, "%s %s\r\n", temp_truoc, temp_sau);
-	ClientSocket.Send(buf, BUFSIZ);
-	memset(buf, 0, BUFSIZ);
-	ClientSocket.Receive(buf, BUFSIZ);
-	//buf[strlen(buf)] = '\0';
-	printf("%s", buf);
+	printf("%d bytes sent in %.2fSeconds %fKbytes/sec.\n", byte_length, duration, byte_length / (duration * 1024));
 }
